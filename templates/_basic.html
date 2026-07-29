@@ -5,6 +5,8 @@
   {% block head %}
       <title>{% block title %}{% endblock %}Beldex{{' TESTNET' if info and info.testnet else ' DEVNET' if info and info.devnet else ''}}
   Blockchain Explorer</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" type="text/css" href="/static/style.css">
     {% if refresh %}
         <meta http-equiv="refresh" content="{{refresh}}">
@@ -21,8 +23,9 @@
                <a href="/"><img src="{{ url_for('static', filename='logo.svg') }}"></a>
             </h1>
             <div class="header-tabs">
-                <a href="/" class="header-tab{% if not request.path.startswith('/assets') %} active{% endif %}">Blockchain</a>
+                <a href="/" class="header-tab{% if not request.path.startswith('/assets') and not request.path.startswith('/gateway') %} active{% endif %}">Blockchain</a>
                 <a href="/assets" class="header-tab{% if request.path.startswith('/assets') %} active{% endif %}">Assets</a>
+                <a href="/gateways" class="header-tab{% if request.path.startswith('/gateway') %} active{% endif %}">Gateway</a>
             </div>
             <form action="/search" method="get" class="top-search">
                 <input type="text" name="value" size="64" placeholder="Block height, Block hash, Transaction ID, Master Node pubkey or BNS">

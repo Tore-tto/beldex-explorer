@@ -1,0 +1,295 @@
+{% extends "_basic.html" %}
+
+{% block content %}
+<div class="Wrapper">
+
+    {% if info and info.nettype in ('testnet', 'devnet') %}
+    <div class="info_list nowrap-spans" style="float: none;">
+        {% if info.nettype == 'testnet' %}
+        <span>This is <span style="font-weight: bold">TESTNET</span> blockchain</span>
+        {% elif info.nettype == 'devnet' %}
+        <span>This is <span style="font-weight: bold">DEVNET</span> blockchain</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="TitleDivider"></div>
+
+    <div class="gw-heading-row">
+        <h2>Gateways</h2>
+        <div class="gw-search">
+            <input type="text" id="gw-search-input" placeholder="Search by gateway address or ID"
+                autocomplete="off" spellcheck="false">
+        </div>
+    </div>
+    <div class="TitleUnderliner"></div>
+
+    <div class="gw-block">
+
+        <!-- Stats -->
+        <div class="gw-stats">
+            <div class="gw-stat">
+                <label>Total Gateways</label>
+                <span class="gw-stat-value">{{ total }}</span>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <table class="Table gw-table" id="gw-table">
+            <thead>
+                <tr>
+                    <td>#</td>
+                    <td>Gateway Address</td>
+                    <td>Gateway ID</td>
+                    <td>Detail</td>
+                </tr>
+            </thead>
+            <tbody>
+                {% if gateways %}
+                {% for gw in gateways %}
+                <tr class="gw-row" data-address="{{ (gw.address or '') | lower }}"
+                    data-gateway-id="{{ (gw.gateway_id or '') | lower }}">
+                    <td class="gw-index">{{ loop.index }}</td>
+                    <td class="gw-addr-cell">
+                        <span class="gw-addr-text">{{ gw.address }}</span>
+                    </td>
+                    <td class="gw-id-cell">
+                        <span class="gw-id-text">{{ gw.gateway_id }}</span>
+                    </td>
+                    <td>
+                        <a href="/gateway/{{ gw.address }}" class="gw-id-text">Show Details</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr class="gw-empty">
+                    <td colspan="4" style="text-align: center; padding: 32px;">
+                        No gateways registered on this network yet.
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div id="gw-no-results" style="display:none; text-align:center; padding: 24px; color: #8a8a9a;">
+            No gateways match your search.
+        </div>
+
+    </div><!-- /.gw-block -->
+</div><!-- /.Wrapper -->
+
+<style>
+    .gw-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .gw-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin: 0 0 18px;
+    }
+
+    .gw-stat {
+        flex: 0 1 auto;
+        background: #262634;
+        border-radius: 8px;
+        padding: 12px 28px;
+        text-align: center;
+        min-width: 140px;
+    }
+
+    .gw-stat label {
+        display: block;
+        color: var(--text-highlight-color);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: 'Inter', sans-serif;
+        letter-spacing: 0.4px;
+        margin-bottom: 4px;
+    }
+
+    .gw-stat-value {
+        font-size: 26px;
+        font-weight: 700;
+        font-family: 'Inter', sans-serif;
+        color: #3ad540;
+    }
+
+    .gw-table {
+        margin-bottom: 10px;
+    }
+
+    .gw-table td:first-child {
+        text-align: center;
+        width: 42px;
+        padding-left: 8px;
+    }
+
+    .gw-table td:nth-child(2),
+    .gw-table td:nth-child(3) {
+        text-align: left;
+    }
+
+    .gw-table thead td {
+        font-family: 'Inter', sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+
+    .gw-row.hidden {
+        display: none;
+    }
+
+    .gw-index {
+        color: #8a8a9a;
+        font-size: 12px;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .gw-addr-cell,
+    .gw-id-cell {
+        max-width: 420px;
+    }
+
+    .gw-id-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        word-break: break-all;
+    }
+
+    .gw-addr-text {
+        color: #3ad540;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+    }
+
+    .gw-id-text {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        color: #cfcfe0;
+        word-break: break-all;
+    }
+
+    .gw-copy {
+        background: transparent;
+        border: none;
+        color: #3ad540;
+        cursor: pointer;
+        font-size: 15px;
+        line-height: 1;
+        padding: 0;
+        flex: 0 0 auto;
+    }
+
+    .gw-copy:hover {
+        color: #2fb034;
+    }
+
+    .gw-copy.copied {
+        color: #9aa0a6;
+    }
+
+    .gw-detail-btn {
+        display: inline-block;
+        padding: 5px 14px;
+        border: 1px solid #3ad540;
+        border-radius: 5px;
+        color: #3ad540;
+        font-size: 12px;
+        font-family: 'Inter', sans-serif;
+        font-weight: 500;
+        text-decoration: none;
+        white-space: nowrap;
+        background: rgba(58, 213, 64, 0.08);
+        transition: background 0.15s;
+    }
+
+    .gw-detail-btn:hover {
+        background: rgba(58, 213, 64, 0.22);
+        text-decoration: none;
+        color: #3ad540;
+    }
+
+    .gw-search input {
+        padding: 8px 12px;
+        border: 0;
+        border-radius: 8px;
+        min-width: 320px;
+        background-color: #262634;
+        color: white;
+        font-size: 1em;
+    }
+
+    .gw-search input:focus {
+        outline: none;
+        border: solid 1px var(--control-highlight-link-color);
+    }
+</style>
+
+<script>
+    (function () {
+        function copyText(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(text);
+            }
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) { }
+            document.body.removeChild(ta);
+            return Promise.resolve();
+        }
+
+        document.querySelectorAll('.gw-copy').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                copyText(btn.getAttribute('data-copy') || '').then(function () {
+                    var original = btn.textContent;
+                    btn.classList.add('copied');
+                    btn.textContent = '✓';
+                    setTimeout(function () {
+                        btn.classList.remove('copied');
+                        btn.textContent = original;
+                    }, 1200);
+                });
+            });
+        });
+    })();
+
+        var searchInput = document.getElementById('gw-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                var q = searchInput.value.trim().toLowerCase();
+                var rows = document.querySelectorAll('.gw-row');
+                var visibleCount = 0;
+                
+                rows.forEach(function(row) {
+                    var address = row.getAttribute('data-address') || '';
+                    var id = row.getAttribute('data-gateway-id') || '';
+                    var match = !q || address.indexOf(q) !== -1 || id.indexOf(q) !== -1;
+                    
+                    if (match) {
+                        row.classList.remove('hidden');
+                        visibleCount++;
+                    } else {
+                        row.classList.add('hidden');
+                    }
+                });
+                
+                var noResults = document.getElementById('gw-no-results');
+                if (noResults) {
+                    noResults.style.display = (visibleCount === 0 && rows.length > 0) ? 'block' : 'none';
+                }
+            });
+        }
+</script>
+
+{% endblock %}

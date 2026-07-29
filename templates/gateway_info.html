@@ -1,0 +1,683 @@
+{% extends "_basic.html" %}
+
+{% block content %}
+<div class="Wrapper">
+
+    {% if info and info.nettype in ('testnet', 'devnet') %}
+    <div class="info_list nowrap-spans" style="float: none;">
+        {% if info.nettype == 'testnet' %}
+        <span>This is <span style="font-weight: bold">TESTNET</span> blockchain</span>
+        {% elif info.nettype == 'devnet' %}
+        <span>This is <span style="font-weight: bold">DEVNET</span> blockchain</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="TitleDivider"></div>
+
+
+
+    <!-- Page heading -->
+    <div class="gwi-heading-row">
+        <h2 style="margin-top: 6px;">Gateway Details</h2>
+    </div>
+    <div class="TitleUnderliner"></div>
+
+    <!-- Address banner: address + balance inline -->
+    <div class="gwi-address-banner">
+        <label>GATEWAY ADDRESS</label>
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 15px;">
+            <div class="gwi-address-text" style="margin-bottom: 0;">{{ gw.address }}</div>
+            {% if gw.balances_display %}
+            {% set native_bal = gw.balances_display | selectattr('asset_id', 'equalto', '0'*64) | first %}
+            {% if native_bal %}
+            <div class="gwi-inline-balances" style="margin-top: 0;">
+                <span class="gwi-inline-bal">
+                    <span class="gwi-inline-amount" style="color: #3ad540; font-size: 16px;">{{ native_bal.amount
+                        }}</span>
+                    <span class="gwi-badge-native"
+                        style="border: 1px solid #2fb034; background: rgba(58, 213, 64, 0.1); padding: 2px 6px; border-radius: 4px; font-weight: bold;">BDX</span>
+                </span>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+
+        {% if gw.balances_display %}
+        {% set asset_bals = gw.balances_display | rejectattr('asset_id', 'equalto', '0'*64) | list %}
+        {% if asset_bals %}
+        <div class="gwi-inline-balances" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #2c2c3a;">
+            {% for b in asset_bals %}
+            <span class="gwi-inline-bal">
+                <span class="gwi-inline-amount">{{ b.amount }}</span>
+                <span class="gwi-badge gwi-badge-asset">{{ b.asset_id[:8] }}…</span>
+            </span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- Info cards grid -->
+    <div class="gwi-cards">
+
+        <!-- Identification card -->
+        <div class="gwi-card gwi-card-wide">
+            <h4 class="gwi-card-title">Identification</h4>
+
+            <div class="gwi-card-item">
+                <label>GATEWAY ID</label>
+                <span class="gwi-mono">{{ gw.owner_key }}</span>
+            </div>
+
+            <div class="gwi-card-item">
+                <label>OWNER KEY TYPE</label>
+                <span>
+                    {% if gw.owner_key_type == 0 %}
+                    Ed25519 <span class="gwi-badge">type 0</span>
+                    {% elif gw.owner_key_type == 1 %}
+                    Secp256k1 (ETH) <span class="gwi-badge">type 1</span>
+                    {% elif gw.owner_key_type == 2 %}
+                    EdDSA <span class="gwi-badge">type 2</span>
+                    {% else %}
+                    <span class="gwi-badge">type {{ gw.owner_key_type }}</span>
+                    {% endif %}
+                </span>
+            </div>
+
+            {% if gw.meta_info %}
+            <div class="gwi-card-item">
+                <label>META INFO</label>
+                <span>{{ gw.meta_info }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Transaction History card -->
+        <div class="gwi-card gwi-card-wide">
+            <h4 class="gwi-card-title">Transaction History
+                {% if gw.tx_details %}
+                <span class="gwi-count-badge">{{ gw.tx_details | length }}</span>
+                {% endif %}
+            </h4>
+
+            {% if gw.tx_details %}
+            <div class="gwi-history-scroll">
+                <table class="Table gwi-history-table">
+                    <thead>
+                        <tr>
+                            <td>#</td>
+                            <td>TX Hash</td>
+                            <td>Block</td>
+                            <td>Type</td>
+                            <td class="gwi-arrow-col"></td>
+                            <td>Amount In</td>
+                            <td>Amount Out</td>
+                            <td>Fee</td>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in gw.tx_details %}
+                        <tr class="gwi-hist-row">
+                            <td class="gwi-hist-idx">
+                                {{ loop.index }}
+                            </td>
+                            <td class="gwi-hash-cell">
+                                {% if tx.tx_hash %}
+                                <a href="/tx/{{ tx.tx_hash }}" class="gwi-tx-link" title="{{ tx.tx_hash }}">
+                                    {{ tx.tx_hash[:12] }}…{{ tx.tx_hash[-8:] }}
+                                </a>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="gwi-block-cell">
+                                {% if tx.block_height %}
+                                <a href="/block/{{ tx.block_height }}" class="gwi-block-link">{{ tx.block_height }}</a>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="gwi-type-cell">
+                                <span
+                                    class="gwi-type-badge gwi-type-{{ (tx.tx_type or '') | lower | replace(' ', '-') }}">
+                                    {{ tx.tx_type or '—' }}
+                                </span>
+                            </td>
+                            <td class="gwi-arrow-cell">
+                                {% if tx.gw_in or tx.gw_out %}
+                                <button class="gwi-expand-btn"
+                                    onclick="toggleDetail('{{ loop.index }}', this)">▼</button>
+                                {% endif %}
+                            </td>
+                            <td class="gwi-amount-cell gwi-amount-in">
+                                {% set received = tx.gw_out | selectattr('gateway_addr', 'equalto', gw.owner_key) | list
+                                %}
+                                {% if received %}
+                                {% for io in received %}
+                                <div>{{ io.amount }} <span class="gwi-asset-hint">BDX</span></div>
+                                {% endfor %}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="gwi-amount-cell gwi-amount-out">
+                                {% set spent = tx.gw_in | selectattr('gateway_addr', 'equalto', gw.owner_key) | list %}
+                                {% if spent %}
+                                {% for io in spent %}
+                                <div>{{ io.amount }} <span class="gwi-asset-hint">BDX</span></div>
+                                {% endfor %}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="gwi-fee-cell">{{ tx.fee or '—' }}</td>
+                        </tr>
+                        <!-- Expandable detail row -->
+                        {% if tx.gw_in or tx.gw_out %}
+                        <tr class="gwi-detail-row" id="tx-detail-{{ loop.index }}">
+                            <td></td>
+                            <td colspan="7">
+                                {% if tx.gw_in %}
+                                <div class="gwi-io-block">
+                                    <span class="gwi-io-label gwi-io-in">↓ From</span>
+                                    {% for io in tx.gw_in %}
+                                    <span class="gwi-io-addr gwi-mono">{% if io.gateway_addr %}<a
+                                            href="/gateway/{{ io.gateway_addr }}"
+                                            style="color: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.2); text-underline-offset: 3px;">{{
+                                            io.gateway_addr[:16] }}…</a>{% else %}—{% endif %}</span>
+                                    <span class="gwi-io-amount">{{ io.amount }} BDX</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% if tx.gw_out %}
+                                <div class="gwi-io-block">
+                                    <span class="gwi-io-label gwi-io-out">↑ To</span>
+                                    {% for io in tx.gw_out %}
+                                    <span class="gwi-io-addr gwi-mono">{% if io.gateway_addr %}<a
+                                            href="/gateway/{{ io.gateway_addr }}"
+                                            style="color: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.2); text-underline-offset: 3px;">{{
+                                            io.gateway_addr[:16] }}…</a>{% else %}—{% endif %}</span>
+                                    <span class="gwi-io-amount">{{ io.amount }} BDX</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% elif gw.tx_history %}
+            <!-- Fallback: we have hashes but no details yet -->
+            <table class="Table gwi-history-table">
+                <thead>
+                    <tr>
+                        <td>#</td>
+                        <td>Transaction Hash</td>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for txhash in gw.tx_history %}
+                    <tr>
+                        <td class="gwi-hist-idx">{{ loop.index }}</td>
+                        <td class="gwi-mono">
+                            <a href="/tx/{{ txhash }}" class="gwi-tx-link">{{ txhash }}</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="gwi-empty-msg">No transactions recorded yet.</p>
+            {% endif %}
+        </div>
+
+    </div><!-- /.gwi-cards -->
+
+    <!-- Raw JSON toggle -->
+    <div class="gwi-more-link-row">
+        {% if details_html %}
+        <a href="/gateway/{{ gw.address }}" class="gwi-toggle-link">Hide raw data ▲</a>
+        {% else %}
+        <a href="/gateway/{{ gw.address }}/1" class="gwi-toggle-link">Show raw data ▼</a>
+        {% endif %}
+    </div>
+
+    {% if details_html %}
+    <div class="gwi-raw-block">
+        <style type="text/css">
+            {{ details_css | safe }}
+        </style>
+        {{ details_html | safe }}
+    </div>
+    {% endif %}
+
+</div><!-- /.Wrapper -->
+
+<style>
+    /* ── Layout ──────────────────────────────────────────────── */
+    .gwi-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 4px;
+    }
+
+    .gwi-badge-registered {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+        background: rgba(58, 213, 64, 0.15);
+        border: 1px solid rgba(58, 213, 64, 0.5);
+        border-radius: 20px;
+        color: #3ad540;
+        letter-spacing: 0.3px;
+    }
+
+    /* ── Search bar ───────────────────────────────────────────── */
+
+
+    /* ── Address banner ───────────────────────────────────────── */
+    .gwi-address-banner {
+        background: #1c1c26;
+        border: 1px solid #2c2c3a;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin: 18px 0 20px;
+    }
+
+    .gwi-address-banner>label {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        color: #8a8a9a;
+        margin-bottom: 8px;
+    }
+
+    .gwi-address-text {
+        font-size: 14px;
+        word-break: break-all;
+        color: #e0e0f0;
+        margin-bottom: 10px;
+    }
+
+    .gwi-inline-balances {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid #2c2c3a;
+    }
+
+    .gwi-inline-bal {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .gwi-inline-amount {
+        font-size: 20px;
+        font-weight: 700;
+        color: #3ad540;
+    }
+
+    .gwi-badge-native {
+        font-size: 11px;
+        padding: 2px 8px;
+        background: rgba(58, 213, 64, 0.12);
+        border: 1px solid rgba(58, 213, 64, 0.4);
+        border-radius: 4px;
+        color: #3ad540;
+        font-weight: 500;
+    }
+
+
+
+    /* ── Cards ────────────────────────────────────────────────── */
+    .gwi-cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .gwi-card-wide {
+        grid-column: 1 / -1;
+    }
+
+    .gwi-card {
+        background: #1c1c26;
+        border: 1px solid #2c2c3a;
+        border-radius: 10px;
+        padding: 18px 20px;
+    }
+
+    .gwi-card-title {
+        margin: 0 0 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #2c2c3a;
+        font-size: 14px;
+        font-weight: 600;
+        color: #e0e0f0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .gwi-count-badge {
+        font-size: 11px;
+        font-weight: 600;
+        background: #262634;
+        border: 1px solid #3a3a4a;
+        border-radius: 12px;
+        padding: 1px 7px;
+        color: #b0b0c0;
+    }
+
+    .gwi-card-item {
+        margin-bottom: 16px;
+    }
+
+    .gwi-card-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .gwi-card-item>label {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.6px;
+        color: #8a8a9a;
+        margin-bottom: 5px;
+    }
+
+    .gwi-card-item>span {
+        font-size: 13px;
+        word-break: break-all;
+    }
+
+    .gwi-mono {
+        font-size: 13px;
+        color: #cfcfe0;
+        word-break: break-all;
+    }
+
+    .gwi-badge {
+        display: inline-block;
+        padding: 2px 7px;
+        background: #262634;
+        border: 1px solid #3a3a4a;
+        border-radius: 4px;
+        font-size: 11px;
+        color: #b0b0c0;
+        vertical-align: middle;
+        margin-left: 4px;
+    }
+
+    /* ── History table ────────────────────────────────────────── */
+    .gwi-history-scroll {
+        overflow-x: auto;
+    }
+
+    .gwi-history-table {
+        margin: 0;
+        width: 100%;
+        min-width: 700px;
+    }
+
+    .gwi-history-table thead td {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        color: #8a8a9a;
+        padding: 8px 10px;
+        text-transform: uppercase;
+        text-align: center;
+    }
+
+    .gwi-history-table tbody tr {
+        transition: background 0.12s;
+    }
+
+    .gwi-history-table tbody tr:hover {
+        background: rgba(58, 213, 64, 0.04);
+    }
+
+    .gwi-hist-idx {
+        color: #5a5a6a;
+        font-size: 11px;
+        width: 32px;
+        text-align: center;
+    }
+
+    .gwi-hash-cell {
+        text-align: center;
+    }
+
+    .gwi-block-cell {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .gwi-type-cell {
+        text-align: center;
+    }
+
+    .gwi-arrow-col,
+    .gwi-arrow-cell {
+        width: 20px;
+        min-width: 20px;
+        max-width: 20px;
+        padding: 0 !important;
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    .gwi-amount-cell {
+        text-align: center;
+        white-space: nowrap;
+        font-size: 13px;
+    }
+
+    .gwi-amount-in {
+        color: #5ab8ff;
+    }
+
+    .gwi-amount-out {
+        color: #3ad540;
+    }
+
+    .gwi-fee-cell {
+        text-align: center;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .gwi-asset-hint {
+        font-size: 10px;
+        color: #6a6a7a;
+    }
+
+    .gwi-tx-link {
+        font-size: 12px;
+        color: #3ad540;
+        text-decoration: none;
+    }
+
+    .gwi-tx-link:hover {
+        text-decoration: underline;
+    }
+
+    .gwi-block-link {
+        font-size: 13px;
+        color: #5ab8ff;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .gwi-block-link:hover {
+        text-decoration: underline;
+    }
+
+    /* Type badges */
+    .gwi-type-badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 10px;
+        letter-spacing: 0.3px;
+    }
+
+    .gwi-type-gateway-in {
+        background: rgba(58, 213, 64, 0.12);
+        border: 1px solid rgba(58, 213, 64, 0.35);
+        color: #3ad540;
+    }
+
+    .gwi-type-gateway-out {
+        background: rgba(255, 100, 100, 0.1);
+        border: 1px solid rgba(255, 100, 100, 0.3);
+        color: #ff6464;
+    }
+
+    .gwi-type-transfer {
+        background: rgba(90, 184, 255, 0.1);
+        border: 1px solid rgba(90, 184, 255, 0.3);
+        color: #5ab8ff;
+    }
+
+    .gwi-type-coinbase {
+        background: rgba(255, 180, 50, 0.1);
+        border: 1px solid rgba(255, 180, 50, 0.3);
+        color: #ffb432;
+    }
+
+    .gwi-type-register {
+        background: rgba(180, 130, 255, 0.1);
+        border: 1px solid rgba(180, 130, 255, 0.3);
+        color: #b482ff;
+    }
+
+    /* Detail row (from/to breakdown) */
+    .gwi-detail-row {
+        display: none;
+    }
+
+    .gwi-detail-row.show {
+        display: table-row;
+    }
+
+    .gwi-detail-row td {
+        padding: 4px 10px 10px;
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid #2c2c3a;
+    }
+
+    .gwi-expand-btn {
+        background: transparent;
+        border: none;
+        color: #8a8a9a;
+        cursor: pointer;
+        padding: 0;
+        font-size: 10px;
+        transition: transform 0.2s ease;
+        display: inline-block;
+        vertical-align: middle;
+    }
+
+    .gwi-expand-btn:hover {
+        color: #fff;
+    }
+
+    .gwi-expand-btn.expanded {
+        transform: rotate(-180deg);
+    }
+
+    .gwi-io-block {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-right: 16px;
+        font-size: 12px;
+    }
+
+    .gwi-io-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        padding: 1px 5px;
+        border-radius: 3px;
+    }
+
+    .gwi-io-in {
+        background: rgba(90, 184, 255, 0.15);
+        color: #5ab8ff;
+    }
+
+    .gwi-io-out {
+        background: rgba(58, 213, 64, 0.12);
+        color: #3ad540;
+    }
+
+    .gwi-io-addr {
+        font-size: 11px;
+        color: #8a8a9a;
+    }
+
+    .gwi-io-amount {
+        font-size: 12px;
+        font-weight: 600;
+        color: #e0e0f0;
+    }
+
+    .gwi-empty-msg {
+        color: #8a8a9a;
+        margin: 0;
+    }
+
+    /* Raw JSON */
+    .gwi-more-link-row {
+        text-align: right;
+        margin-bottom: 10px;
+    }
+
+    .gwi-toggle-link {
+        color: #8a8a9a;
+        font-size: 13px;
+        text-decoration: none;
+    }
+
+    .gwi-toggle-link:hover {
+        color: #3ad540;
+    }
+
+    .gwi-raw-block {
+        border: 1px solid #2c2c3a;
+        border-radius: 8px;
+        overflow: auto;
+        padding: 14px;
+        margin-bottom: 24px;
+        font-size: 12px;
+    }
+
+    @media (max-width: 800px) {
+        .gwi-cards {
+            grid-template-columns: 1fr;
+        }
+
+        .gwi-card-wide {
+            grid-column: 1 / -1;
+        }
+    }
+</style>
+
+<script>
+    function toggleDetail(index, btn) {
+        const row = document.getElementById('tx-detail-' + index);
+        if (row) {
+            row.classList.toggle('show');
+            btn.classList.toggle('expanded');
+        }
+    }
+</script>
+
+{% endblock %}

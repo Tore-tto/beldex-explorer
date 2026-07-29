@@ -27,7 +27,6 @@ import base64
 import nacl.encoding
 import nacl.hash 
 import pysodium
-import sha3
 import base58
 from urllib.parse import urlparse
 
@@ -1112,6 +1111,9 @@ def show_tx(txid, more_details=False):
             # Load output details for all outputs contained in the inputs
             outs_req = []
             for inp in tx['vin']:
+                if 'key' not in inp:
+                    # Gateway or other non-ring-CT input type — skip mixin lookup
+                    continue
                 # Key positions are stored as offsets from the previous index rather than indices,
                 # so de-delta them back into indices:
                 if 'key_offsets' in inp['key'] and 'key_indices' not in inp['key']:
@@ -1123,7 +1125,7 @@ def show_tx(txid, more_details=False):
                         kis.append(kbase)
                     del inp['key']['key_offsets']
 
-            outs_req = [{"amount":inp['key']['amount'], "index":ki} for inp in tx['vin'] for ki in inp['key']['key_indices']]
+            outs_req = [{"amount":inp['key']['amount'], "index":ki} for inp in tx['vin'] if 'key' in inp for ki in inp['key'].get('key_indices', [])]
             outputs = FutureJSON(lmq, beldexd, 'rpc.get_outs', args={
                 'get_txid': True,
                 'outputs': outs_req,
@@ -1136,11 +1138,13 @@ def show_tx(txid, more_details=False):
                 })
                 i = 0
                 for inp in tx['vin']:
+                    if 'key' not in inp:
+                        continue
                     amount = inp['key']['amount']
                     if amount not in kindex_info:
                         kindex_info[amount] = {}
                     ki = kindex_info[amount]
-                    for ko in inp['key']['key_indices']:
+                    for ko in inp['key'].get('key_indices', []):
                         ki[ko] = outputs[i]
                         i += 1
 
@@ -1598,3 +1602,201 @@ def api_price(fiat=None):
         fiat = fiat.lower()
         return flask.jsonify({ fiat: ticker_cache[fiat] } if fiat in ticker_cache else {})
         
+
+# ---------------------------------------------------------------------------
+# Gateway routes
+# ---------------------------------------------------------------------------
+
+def _format_gateway_balance(amount):
+    """Format a raw gateway balance amount (9 decimal places, same as BDX)."""
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError):
+        return str(amount)
+    from decimal import Decimal
+    value = Decimal(amount) / Decimal(10 ** 9)
+    s = f"{value:,.9f}"
+    if '.' in s:
+        s = s.rstrip('0').rstrip('.')
+    return s
+
+
+def _gateway_tx_type_label(tx, current_gw_id):
+    """Return a human-readable label for a gateway transaction type."""
+    extra = tx.get('extra', {})
+    if 'gateway_descriptor' in extra and extra['gateway_descriptor'].get('op_type') == 'register':
+        return 'Register'
+
+    vin = tx.get('vin', [])
+    vout = tx.get('vout', [])
+    
+    # Check if the CURRENT gateway is the sender
+    is_spending = any(
+        inp.get('gateway', {}).get('gateway_addr') == current_gw_id 
+        for inp in vin if 'gateway' in inp
+    )
+    
+    # Check if the CURRENT gateway is the receiver
+    is_receiving = any(
+        out.get('target', {}).get('gateway', {}).get('gateway_addr') == current_gw_id
+        for out in vout if 'gateway' in out.get('target', {})
+    )
+
+    if is_receiving and not is_spending:
+        return 'Gateway in'
+    elif is_spending:
+        return 'Gateway out'
+
+    return 'Transfer'   
+
+
+def _parse_gateway_io(io_list):
+    """Extract gateway input/output amounts and addresses from vin/vout."""
+    result = []
+    for entry in (io_list or []):
+        gw = entry.get('gateway') if isinstance(entry, dict) else None
+        if gw is None:
+            tgt = entry.get('target', {}) if isinstance(entry, dict) else {}
+            gw = tgt.get('gateway')
+        if gw:
+            amount_raw = gw.get('amount', entry.get('amount', 0))
+            result.append({
+                'amount_raw':   amount_raw,
+                'amount':       _format_gateway_balance(amount_raw),
+                'asset_id':     gw.get('asset_id', '0' * 64),
+                'gateway_addr': gw.get('gateway_addr', ''),
+                'payment_id':   gw.get('payment_id', ''),
+            })
+    return result
+
+
+def _enrich_gateway_txs(tx_hashes, current_gw_id=None):
+    """Fetch and enrich transaction details for gateway TX hashes using the
+    standard LMQ connection."""
+    if not tx_hashes:
+        return []
+    lmq, beldexd = lmq_connection()
+    raw = tx_req(lmq, beldexd, list(tx_hashes), cache_key='gw_txs').get()
+    txs = parse_txs(raw)
+    results = []
+    for tx in txs:
+        entry = {
+            'tx_hash':      tx.get('tx_hash', ''),
+            'block_height': tx.get('block_height', ''),
+            'fee':          _format_gateway_balance(tx.get('fee', 0)),
+            'tx_type':      _gateway_tx_type_label(tx, current_gw_id),
+            'gw_in':        _parse_gateway_io(tx.get('vin', [])),
+            'gw_out':       _parse_gateway_io(tx.get('vout', [])),
+        }
+        results.append(entry)
+    return results
+
+
+@app.route('/gateways')
+def gateways():
+    """List all registered gateways from the daemon."""
+    lmq, beldexd = lmq_connection()
+    info = FutureJSON(lmq, beldexd, 'rpc.get_info', 1)
+    gw_future = FutureJSON(lmq, beldexd, 'rpc.get_all_gateways', 10, args={})
+
+    gw_result = gw_future.get() or {}
+    gateway_list = gw_result.get('gateways', [])
+    total = gw_result.get('total', len(gateway_list))
+
+    return flask.render_template('gateways.html',
+            info=info.get(),
+            gateways=gateway_list,
+            total=total,
+            )
+
+
+@app.route('/gateway/<string:address>')
+@app.route('/gateway/<string:address>/<int:more_details>')
+def show_gateway(address, more_details=False):
+    """Show details for a single gateway address."""
+    lmq, beldexd = lmq_connection()
+    info = FutureJSON(lmq, beldexd, 'rpc.get_info', 1)
+    
+    # Resolve 64-char hex gateway_id to base58 address
+    if len(address) == 64 and all(c in '0123456789abcdefABCDEF' for c in address):
+        all_gws = FutureJSON(lmq, beldexd, 'rpc.get_all_gateways', 10).get() or {}
+        for g in all_gws.get('gateways', []):
+            if g.get('gateway_id') == address:
+                address = g.get('address')
+                break
+
+    gw_future = FutureJSON(lmq, beldexd, 'rpc.get_gateway_info', 10,
+            cache_key=address,
+            args={'gateway_address': address})
+
+    gw = gw_future.get() or {}
+
+    if not gw or gw.get('status') not in (None, 'OK') or not gw.get('address'):
+        return flask.render_template('not_found.html',
+                info=info.get(),
+                type='gateway',
+                id=address,
+                )
+
+    # Format balances for display
+    balances = []
+    for b in gw.get('balances', []):
+        balances.append({
+            'amount_raw': b.get('amount', 0),
+            'amount': _format_gateway_balance(b.get('amount', 0)),
+            'asset_id': b.get('asset_id', ''),
+        })
+    gw['balances_display'] = balances
+
+    # Fetch transaction history (graceful fallback if RPC not available)
+    tx_hashes = []
+    try:
+        hist_future = FutureJSON(lmq, beldexd, 'rpc.get_gateway_history', 30,
+                cache_key='hist_' + address,
+                args={'gateway_address': address, 'count': 50},
+                fail_okay=True)
+        hist = hist_future.get() or {}
+        tx_hashes = hist.get('tx_hashes', [])
+    except Exception as e:
+        print(f'get_gateway_history not available: {e}', file=sys.stderr)
+
+    # Fetch and enrich TX details via LMQ
+    gw['tx_details'] = _enrich_gateway_txs(tx_hashes, gw.get('owner_key'))
+    gw['tx_history'] = tx_hashes
+
+    if more_details:
+        formatter = HtmlFormatter(cssclass="syntax-highlight", style="paraiso-dark")
+        more_details = {
+            'details_css': formatter.get_style_defs('.syntax-highlight'),
+            'details_html': highlight(json.dumps(gw, indent="\t", sort_keys=True), JsonLexer(), formatter),
+        }
+    else:
+        more_details = {}
+
+    return flask.render_template('gateway_info.html',
+            info=info.get(),
+            gw=gw,
+            **more_details,
+            )
+
+
+@app.route('/api/gateway_info/<string:address>')
+def api_gateway_info(address):
+    """JSON endpoint: return full gateway info for a given address."""
+    lmq, beldexd = lmq_connection()
+    gw = FutureJSON(lmq, beldexd, 'rpc.get_gateway_info', 10,
+            cache_key=address,
+            args={'gateway_address': address}).get() or {}
+
+    if not gw or gw.get('status') not in (None, 'OK') or not gw.get('address'):
+        return flask.jsonify({'found': False})
+
+    balances = []
+    for b in gw.get('balances', []):
+        balances.append({
+            'amount_raw': b.get('amount', 0),
+            'amount': _format_gateway_balance(b.get('amount', 0)),
+            'asset_id': b.get('asset_id', ''),
+        })
+    gw['balances_display'] = balances
+    return flask.jsonify({'found': True, 'gateway': gw})
