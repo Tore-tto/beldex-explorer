@@ -1621,24 +1621,27 @@ def _format_gateway_balance(amount):
     return s
 
 
-def _gateway_tx_type_label(tx, current_gw_id):
+def _gateway_tx_type_label(tx, known_keys):
     """Return a human-readable label for a gateway transaction type."""
-    extra = tx.get('extra', {})
-    if 'gateway_descriptor' in extra and extra['gateway_descriptor'].get('op_type') == 'register':
-        return 'Register'
+    if not isinstance(known_keys, set):
+        known_keys = {known_keys}
 
+    extra = tx.get('extra', {})
+    if 'gateway_descriptor' in extra:
+        if extra['gateway_descriptor'].get('op_type') == 'register':
+            return 'Register'
+        elif extra['gateway_descriptor'].get('op_type') == 'update':
+            return 'Update'
     vin = tx.get('vin', [])
     vout = tx.get('vout', [])
     
-    # Check if the CURRENT gateway is the sender
     is_spending = any(
-        inp.get('gateway', {}).get('gateway_addr') == current_gw_id 
+        inp.get('gateway', {}).get('gateway_addr') in known_keys 
         for inp in vin if 'gateway' in inp
     )
     
-    # Check if the CURRENT gateway is the receiver
     is_receiving = any(
-        out.get('target', {}).get('gateway', {}).get('gateway_addr') == current_gw_id
+        out.get('target', {}).get('gateway', {}).get('gateway_addr') in known_keys
         for out in vout if 'gateway' in out.get('target', {})
     )
 
@@ -1670,26 +1673,54 @@ def _parse_gateway_io(io_list):
     return result
 
 
-def _enrich_gateway_txs(tx_hashes, current_gw_id=None):
+def _enrich_gateway_txs(tx_hashes, gw_id_hex=None, current_gw_id=None):
     """Fetch and enrich transaction details for gateway TX hashes using the
-    standard LMQ connection."""
+    standard LMQ connection. Discovers historical owner keys to correctly
+    label past transactions."""
     if not tx_hashes:
-        return []
+        return [], []
     lmq, beldexd = lmq_connection()
     raw = tx_req(lmq, beldexd, list(tx_hashes), cache_key='gw_txs').get()
     txs = parse_txs(raw)
+    
+    known_keys = set()
+    if gw_id_hex:
+        known_keys.add(gw_id_hex)
+    if current_gw_id:
+        known_keys.add(current_gw_id)
+
+    for tx in txs:
+        extra = tx.get('extra', {})
+        if 'gateway_descriptor' in extra:
+            desc = extra['gateway_descriptor']
+            if desc.get('address_id') == gw_id_hex or desc.get('address_id') == current_gw_id:
+                owner_key = desc.get('descriptor', {}).get('owner_key')
+                if owner_key:
+                    known_keys.add(owner_key)
+        
+        gw_addrs = set()
+        for io in tx.get('vin', []):
+            if 'gateway' in io:
+                gw_addrs.add(io['gateway'].get('gateway_addr'))
+        for io in tx.get('vout', []):
+            if 'target' in io and 'gateway' in io['target']:
+                gw_addrs.add(io['target']['gateway'].get('gateway_addr'))
+        
+        if len(gw_addrs) == 1:
+            known_keys.add(gw_addrs.pop())
+
     results = []
     for tx in txs:
         entry = {
             'tx_hash':      tx.get('tx_hash', ''),
             'block_height': tx.get('block_height', ''),
             'fee':          _format_gateway_balance(tx.get('fee', 0)),
-            'tx_type':      _gateway_tx_type_label(tx, current_gw_id),
+            'tx_type':      _gateway_tx_type_label(tx, known_keys),
             'gw_in':        _parse_gateway_io(tx.get('vin', [])),
             'gw_out':       _parse_gateway_io(tx.get('vout', [])),
         }
         results.append(entry)
-    return results
+    return results, list(known_keys)
 
 
 @app.route('/gateways')
@@ -1718,11 +1749,19 @@ def show_gateway(address, more_details=False):
     info = FutureJSON(lmq, beldexd, 'rpc.get_info', 1)
     
     # Resolve 64-char hex gateway_id to base58 address
+    gw_id_hex = None
     if len(address) == 64 and all(c in '0123456789abcdefABCDEF' for c in address):
+        gw_id_hex = address
         all_gws = FutureJSON(lmq, beldexd, 'rpc.get_all_gateways', 10).get() or {}
         for g in all_gws.get('gateways', []):
             if g.get('gateway_id') == address:
                 address = g.get('address')
+                break
+    else:
+        all_gws = FutureJSON(lmq, beldexd, 'rpc.get_all_gateways', 10).get() or {}
+        for g in all_gws.get('gateways', []):
+            if g.get('address') == address:
+                gw_id_hex = g.get('gateway_id')
                 break
 
     gw_future = FutureJSON(lmq, beldexd, 'rpc.get_gateway_info', 10,
@@ -1737,6 +1776,9 @@ def show_gateway(address, more_details=False):
                 type='gateway',
                 id=address,
                 )
+
+    if gw_id_hex and not gw.get('gateway_id'):
+        gw['gateway_id'] = gw_id_hex
 
     # Format balances for display
     balances = []
@@ -1761,7 +1803,7 @@ def show_gateway(address, more_details=False):
         print(f'get_gateway_history not available: {e}', file=sys.stderr)
 
     # Fetch and enrich TX details via LMQ
-    gw['tx_details'] = _enrich_gateway_txs(tx_hashes, gw.get('owner_key'))
+    gw['tx_details'], gw['known_keys'] = _enrich_gateway_txs(tx_hashes, gw_id_hex, gw.get('owner_key'))
     gw['tx_history'] = tx_hashes
 
     if more_details:

@@ -1,6 +1,6 @@
 {% macro display(tx, show_zero=false) -%}
     {% set fee =
-        (tx.rct_signatures.txnFee if 'rct_signatures' in tx and 'txnFee' in tx.rct_signatures else 0)
+        (tx.rct_signatures.txnFee if 'rct_signatures' in tx and 'txnFee' in tx.rct_signatures else (tx.fee if tx.fee is defined and tx.fee else 0))
     -%}
     {% if fee > 0 or show_zero -%}
         {{ fee | beldex(tag=False, fixed=True, decimals=4) }}

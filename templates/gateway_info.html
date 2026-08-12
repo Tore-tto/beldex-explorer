@@ -67,7 +67,7 @@
 
             <div class="gwi-card-item">
                 <label>GATEWAY ID</label>
-                <span class="gwi-mono">{{ gw.owner_key }}</span>
+                <span class="gwi-mono">{{ gw.gateway_id or gw.address_id or gw.owner_key }}</span>
             </div>
 
             <div class="gwi-card-item">
@@ -147,7 +147,7 @@
                                 {% endif %}
                             </td>
                             <td class="gwi-amount-cell gwi-amount-in">
-                                {% set received = tx.gw_out | selectattr('gateway_addr', 'equalto', gw.owner_key) | list
+                                {% set received = tx.gw_out | selectattr('gateway_addr', 'in', gw.known_keys) | list
                                 %}
                                 {% if received %}
                                 {% for io in received %}
@@ -156,7 +156,7 @@
                                 {% else %}—{% endif %}
                             </td>
                             <td class="gwi-amount-cell gwi-amount-out">
-                                {% set spent = tx.gw_in | selectattr('gateway_addr', 'equalto', gw.owner_key) | list %}
+                                {% set spent = tx.gw_in | selectattr('gateway_addr', 'in', gw.known_keys) | list %}
                                 {% if spent %}
                                 {% for io in spent %}
                                 <div>{{ io.amount }} <span class="gwi-asset-hint">BDX</span></div>
@@ -555,6 +555,12 @@
         background: rgba(180, 130, 255, 0.1);
         border: 1px solid rgba(180, 130, 255, 0.3);
         color: #b482ff;
+    }
+
+    .gwi-type-update {
+        background: rgba(0, 229, 255, 0.1);
+        border: 1px solid rgba(0, 229, 255, 0.3);
+        color: #00e5ff;
     }
 
     /* Detail row (from/to breakdown) */

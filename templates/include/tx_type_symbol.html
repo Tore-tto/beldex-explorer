@@ -36,6 +36,8 @@
 {% elif 'gateway_descriptor' in tx.extra -%}
 {% if tx.extra.gateway_descriptor.op_type == 'register' -%}
 <span class="icon" title="Gateway Register">🏛️®️{%if text%} Gateway Register{%endif%}</span>
+{% elif tx.extra.gateway_descriptor.op_type == 'update' -%}
+<span class="icon" title="Gateway Update">🏛️🅤{%if text%} Gateway Update{%endif%}</span>
 {% endif -%}
 {% elif tx.type == 5 -%}
 <span class="icon" title="Coin Burn"> 🕯{%if text%}Coin Burn{%endif%}</span>

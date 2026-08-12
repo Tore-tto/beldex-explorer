@@ -32,7 +32,8 @@
                 <td><a href="/tx/{{tx.tx_hash}}">{{tx.tx_hash}}</a></td>
                 <td>
                     {%if 'rct_signatures' in tx%}
-                        {{fee.display(tx)}} / {{(tx.rct_signatures.txnFee * 1000 / tx.size) | beldex(tag=false, decimals=4)}}
+                        {% set raw_fee = tx.rct_signatures.txnFee if 'txnFee' in tx.rct_signatures else (tx.fee if tx.fee is defined and tx.fee else 0) %}
+                        {{fee.display(tx)}} / {{(raw_fee * 1000 / tx.size) | beldex(tag=false, decimals=4)}}
                     {%else%}
                         N/A
                     {%endif%}
